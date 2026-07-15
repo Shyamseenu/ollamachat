@@ -142,6 +142,100 @@
         min-height: 14px;
       }
 
+      /* ---------- Chat history section ---------- */
+      #sidebar h3.history-heading {
+        margin-top: 22px;
+      }
+      .new-chat-btn {
+        width: 100%;
+        background: transparent;
+        border: 1px dashed var(--border);
+        color: var(--text-dim);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        letter-spacing: 0.03em;
+        margin-bottom: 10px;
+        transition: all 0.15s;
+      }
+      .new-chat-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .session-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 6px;
+        font-size: 11px;
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          background 0.15s;
+      }
+      .session-item:hover {
+        border-color: var(--accent-dim);
+      }
+      .session-item.active {
+        border-color: var(--accent);
+        background: rgba(124, 106, 247, 0.08);
+      }
+      .session-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text);
+      }
+      .session-item.active .session-name {
+        color: var(--accent);
+      }
+      .session-name-input {
+        flex: 1;
+        min-width: 0;
+        background: var(--bg);
+        border: 1px solid var(--accent-dim);
+        border-radius: 4px;
+        color: var(--text);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        padding: 3px 5px;
+        outline: none;
+      }
+      .session-actions {
+        display: flex;
+        gap: 2px;
+        flex-shrink: 0;
+      }
+      .session-edit,
+      .session-remove {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 11px;
+        padding: 2px 4px;
+        border-radius: 4px;
+      }
+      .session-edit:hover {
+        color: var(--accent);
+      }
+      .session-remove:hover {
+        color: var(--red);
+      }
+      .session-empty {
+        font-size: 11px;
+        color: var(--text-muted);
+        text-align: center;
+        padding: 10px 0;
+      }
+
       /* ---------- Main column ---------- */
       #main {
         position: relative;
@@ -606,6 +700,10 @@
       </div>
       <div class="upload-status" id="upload-status"></div>
       <div id="doc-list"></div>
+
+      <h3 class="history-heading">Chat history</h3>
+      <button class="new-chat-btn" id="new-chat-btn">+ New chat</button>
+      <div id="session-list"></div>
     </aside>
 
     <div id="main">
@@ -663,6 +761,35 @@
       const emptyState = document.getElementById("empty-state");
       const logoutBtn = document.getElementById("logout-btn");
       let isStreaming = false;
+      let currentSessionId = null;
+
+      function showEmptyState(title, text) {
+        messagesEl.innerHTML = "";
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.id = "empty-state";
+        empty.innerHTML = `
+      <div class="empty-icon">⬡</div>
+      <h2>${title}</h2>
+      <p>${text}</p>`;
+        messagesEl.appendChild(empty);
+      }
+
+      function renderMessages(history) {
+        messagesEl.innerHTML = "";
+        if (!history.length) {
+          showEmptyState(
+            "Ready to chat",
+            'Running locally via Ollama · <code style="color: var(--accent)">llama3.2:latest</code> · Upload a document on the left to ask questions about it',
+          );
+          return;
+        }
+        for (const m of history) {
+          if (m.role === "user") appendMessage("user", m.content);
+          else if (m.role === "assistant") appendMessage("bot", m.content);
+        }
+        scrollBottom();
+      }
 
       // ---------- Auth ----------
       logoutBtn.addEventListener("click", async () => {
@@ -749,7 +876,10 @@
           const res = await authFetch("/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: msg }),
+            body: JSON.stringify({
+              message: msg,
+              session_id: currentSessionId,
+            }),
           });
 
           thinking.remove();
@@ -819,19 +949,19 @@
         sendBtn.disabled = false;
         inputEl.focus();
         scrollBottom();
+        loadSessions();
       }
 
       async function clearChat() {
-        await authFetch("/clear", { method: "POST" });
-        messagesEl.innerHTML = "";
-        const empty = document.createElement("div");
-        empty.className = "empty-state";
-        empty.id = "empty-state";
-        empty.innerHTML = `
-      <div class="empty-icon">⬡</div>
-      <h2>Conversation cleared</h2>
-      <p>Start a new conversation below.</p>`;
-        messagesEl.appendChild(empty);
+        await authFetch("/clear", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: currentSessionId }),
+        });
+        showEmptyState(
+          "Conversation cleared",
+          "Start a new conversation below.",
+        );
         inputEl.focus();
       }
 
@@ -938,8 +1068,188 @@
         }
       }
 
+      // ---------- Chat history / sessions panel ----------
+      const sessionListEl = document.getElementById("session-list");
+      const newChatBtn = document.getElementById("new-chat-btn");
+
+      newChatBtn.addEventListener("click", startNewSession);
+
+      async function fetchSessions() {
+        const res = await authFetch("/sessions");
+        const data = await res.json();
+        return data.sessions || [];
+      }
+
+      async function initSessions() {
+        let sessions = await fetchSessions();
+        if (!sessions.length) {
+          // No saved chats yet — create the first one.
+          const created = await (
+            await authFetch("/sessions", { method: "POST" })
+          ).json();
+          currentSessionId = created.session_id;
+          sessions = [created];
+        } else {
+          // Most recently active session first (list is sorted server-side).
+          currentSessionId = sessions[0].session_id;
+        }
+        renderSessions(sessions);
+        await switchToSession(currentSessionId, { skipHistoryFetch: false });
+      }
+
+      async function loadSessions() {
+        try {
+          const sessions = await fetchSessions();
+          renderSessions(sessions);
+        } catch (err) {
+          /* sidebar just stays as-is */
+        }
+      }
+
+      function renderSessions(sessions) {
+        sessionListEl.innerHTML = "";
+        if (!sessions.length) {
+          sessionListEl.innerHTML =
+            '<div class="session-empty">No saved chats yet</div>';
+          return;
+        }
+        for (const s of sessions) {
+          const item = document.createElement("div");
+          item.className =
+            "session-item" +
+            (s.session_id === currentSessionId ? " active" : "");
+          item.dataset.sessionId = s.session_id;
+          item.innerHTML = `
+        <div class="session-name">${escapeHtml(s.name)}</div>
+        <div class="session-actions">
+          <button class="session-edit" title="Rename">✎</button>
+          <button class="session-remove" title="Delete">✕</button>
+        </div>`;
+
+          item.addEventListener("click", (e) => {
+            if (e.target.closest(".session-actions")) return;
+            if (s.session_id !== currentSessionId)
+              switchToSession(s.session_id);
+          });
+          item.querySelector(".session-edit").addEventListener("click", (e) => {
+            e.stopPropagation();
+            beginRename(item, s);
+          });
+          item
+            .querySelector(".session-remove")
+            .addEventListener("click", (e) => {
+              e.stopPropagation();
+              deleteSession(s.session_id);
+            });
+
+          sessionListEl.appendChild(item);
+        }
+      }
+
+      function escapeHtml(str) {
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      function beginRename(item, session) {
+        const nameDiv = item.querySelector(".session-name");
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "session-name-input";
+        input.value = session.name;
+        nameDiv.replaceWith(input);
+        input.focus();
+        input.select();
+
+        let finished = false;
+        const finish = async (commit) => {
+          if (finished) return;
+          finished = true;
+          const newName = input.value.trim();
+          if (commit && newName && newName !== session.name) {
+            await renameSession(session.session_id, newName);
+          } else {
+            loadSessions();
+          }
+        };
+
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            finish(true);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            finish(false);
+          }
+        });
+        input.addEventListener("blur", () => finish(true));
+      }
+
+      async function renameSession(sessionId, name) {
+        try {
+          await authFetch("/sessions/" + encodeURIComponent(sessionId), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
+        } finally {
+          loadSessions();
+        }
+      }
+
+      async function startNewSession() {
+        const created = await (
+          await authFetch("/sessions", { method: "POST" })
+        ).json();
+        currentSessionId = created.session_id;
+        showEmptyState(
+          "Ready to chat",
+          'Running locally via Ollama · <code style="color: var(--accent)">llama3.2:latest</code> · Upload a document on the left to ask questions about it',
+        );
+        loadSessions();
+        inputEl.focus();
+      }
+
+      async function switchToSession(sessionId, opts = {}) {
+        currentSessionId = sessionId;
+        // Reflect the active state immediately for responsiveness.
+        document.querySelectorAll(".session-item").forEach((el) => {
+          el.classList.toggle("active", el.dataset.sessionId === sessionId);
+        });
+        try {
+          const res = await authFetch(
+            "/history/" + encodeURIComponent(sessionId),
+          );
+          const data = await res.json();
+          renderMessages(data.messages || []);
+        } catch (err) {
+          if (err.message !== "Not authenticated") renderMessages([]);
+        }
+      }
+
+      async function deleteSession(sessionId) {
+        const wasCurrent = sessionId === currentSessionId;
+        await authFetch("/sessions/" + encodeURIComponent(sessionId), {
+          method: "DELETE",
+        });
+
+        if (wasCurrent) {
+          const remaining = await fetchSessions();
+          if (remaining.length) {
+            await switchToSession(remaining[0].session_id);
+            renderSessions(remaining);
+          } else {
+            await startNewSession();
+          }
+        } else {
+          loadSessions();
+        }
+      }
+
       // Initial load
       loadDocuments();
+      initSessions();
     </script>
   </body>
 </html>

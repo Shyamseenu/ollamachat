@@ -61,6 +61,7 @@ mongo_db = mongo_client["chatbot"]
 mongo_col = mongo_db["messages"]      # now includes a "user_id" field per document
 users_col = mongo_db["users"]
 documents_col = mongo_db["documents"]  # tracks each user's uploaded files
+sessions_col = mongo_db["sessions"]    # tracks each user's saved chat sessions (name + timestamps)
 
 auth_service = auth.AuthService(users_col)
 
@@ -240,6 +241,41 @@ def _persist_exchange(user_id: str, session_id: str, user_msg: str, ai_msg: str)
         metadatas=[{"user_id": user_id, "session_id": session_id, "timestamp": now.isoformat()}],
         ids=[exchange_id],
     )
+
+
+def _default_session_name(first_message: str) -> str:
+    """Derive a short, human-readable session name from the first user message."""
+    name = (first_message or "").strip().replace("\n", " ")
+    if len(name) > 40:
+        name = name[:40].rstrip() + "…"
+    return name or "New chat"
+
+
+def _touch_session(user_id: str, session_id: str, first_message: str = "") -> None:
+    """
+    Ensure a session row exists in `sessions` for (user_id, session_id) and
+    bump its updated_at so the sidebar list can be sorted by recency.
+    The name is only set on first creation — later messages never overwrite
+    a name the user (or auto-naming) already gave it.
+    """
+    now = datetime.utcnow()
+    result = sessions_col.update_one(
+        {"user_id": user_id, "session_id": session_id},
+        {"$set": {"updated_at": now}},
+    )
+    if result.matched_count == 0:
+        sessions_col.update_one(
+            {"user_id": user_id, "session_id": session_id},
+            {
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "name": _default_session_name(first_message),
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
 
 
 def get_history(user_id: str, session_id: str) -> InMemoryChatMessageHistory:
@@ -458,6 +494,8 @@ async def chat(request: Request, user_id: str = Depends(auth.get_current_user_id
     if not user_message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
 
+    _touch_session(user_id, session_id, first_message=user_message)
+
     ok, reason = await check_guard(user_message)
 
     context = await asyncio.get_event_loop().run_in_executor(
@@ -542,6 +580,74 @@ async def clear(request: Request, user_id: str = Depends(auth.get_current_user_i
     _chat_histories.pop(hist_key, None)
     _session_personas.pop(hist_key, None)
     return JSONResponse({"status": "cleared", "session_id": session_id})
+
+
+# ---------------------------------------------------------------------------
+# Saved chat sessions (sidebar history list)
+# ---------------------------------------------------------------------------
+@app.get("/sessions")
+async def list_sessions(user_id: str = Depends(auth.get_current_user_id)):
+    sessions = list(
+        sessions_col.find({"user_id": user_id}, {"_id": 0}).sort("updated_at", -1)
+    )
+    for s in sessions:
+        s["created_at"] = s["created_at"].isoformat()
+        s["updated_at"] = s["updated_at"].isoformat()
+    return JSONResponse({"sessions": sessions})
+
+
+@app.post("/sessions")
+async def create_session(user_id: str = Depends(auth.get_current_user_id)):
+    session_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    sessions_col.insert_one({
+        "user_id": user_id,
+        "session_id": session_id,
+        "name": "New chat",
+        "created_at": now,
+        "updated_at": now,
+    })
+    return JSONResponse({
+        "session_id": session_id,
+        "name": "New chat",
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+    })
+
+
+@app.patch("/sessions/{session_id}")
+async def rename_session(
+    session_id: str, request: Request, user_id: str = Depends(auth.get_current_user_id)
+):
+    data = await request.json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return JSONResponse({"error": "Name cannot be empty"}, status_code=400)
+    name = name[:60]
+
+    result = sessions_col.update_one(
+        {"user_id": user_id, "session_id": session_id},
+        {"$set": {"name": name}},
+    )
+    if result.matched_count == 0:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    return JSONResponse({"status": "renamed", "session_id": session_id, "name": name})
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, user_id: str = Depends(auth.get_current_user_id)):
+    result = sessions_col.delete_one({"user_id": user_id, "session_id": session_id})
+    if result.deleted_count == 0:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+
+    # Also remove the underlying messages (Mongo + the in-memory/vector caches)
+    # so a deleted session doesn't silently reappear.
+    mongo_col.delete_many({"user_id": user_id, "session_id": session_id})
+    hist_key = _history_key(user_id, session_id)
+    _chat_histories.pop(hist_key, None)
+    _session_personas.pop(hist_key, None)
+
+    return JSONResponse({"status": "deleted", "session_id": session_id})
 
 
 # ---------------------------------------------------------------------------
