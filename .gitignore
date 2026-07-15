@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+chroma_db/
+*.pdf
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+chroma_db/
+.env

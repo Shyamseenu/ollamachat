@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OllamaChat — Sign in</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0a0f;
+        --surface: #111118;
+        --border: #1e1e2e;
+        --accent: #7c6af7;
+        --accent-dim: #4a3fa0;
+        --accent-glow: rgba(124, 106, 247, 0.15);
+        --text: #e2e0f0;
+        --text-dim: #6b6880;
+        --text-muted: #3d3a52;
+        --red: #f87171;
+        --green: #4ade80;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "JetBrains Mono", monospace;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(var(--text-muted) 1px, transparent 1px),
+          linear-gradient(90deg, var(--text-muted) 1px, transparent 1px);
+        background-size: 40px 40px;
+        opacity: 0.07;
+        pointer-events: none;
+      }
+      .card {
+        position: relative;
+        z-index: 1;
+        width: 340px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 28px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Syne", sans-serif;
+        font-weight: 800;
+        font-size: 14px;
+        color: white;
+        box-shadow: 0 0 16px rgba(124, 106, 247, 0.5);
+      }
+      .logo-text {
+        font-family: "Syne", sans-serif;
+        font-weight: 700;
+        font-size: 16px;
+      }
+      .logo-text span {
+        color: var(--accent);
+      }
+
+      h1 {
+        font-family: "Syne", sans-serif;
+        font-size: 15px;
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+      .subtitle {
+        font-size: 11px;
+        color: var(--text-dim);
+        margin-bottom: 20px;
+      }
+
+      .field {
+        margin-bottom: 14px;
+      }
+      label {
+        display: block;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+      }
+      input {
+        width: 100%;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 10px 12px;
+        color: var(--text);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 13px;
+        outline: none;
+        transition:
+          border-color 0.15s,
+          box-shadow 0.15s;
+      }
+      input:focus {
+        border-color: var(--accent-dim);
+        box-shadow: 0 0 0 3px var(--accent-glow);
+      }
+
+      .submit-btn {
+        width: 100%;
+        background: var(--accent);
+        border: none;
+        color: white;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 11px;
+        border-radius: 6px;
+        cursor: pointer;
+        letter-spacing: 0.05em;
+        margin-top: 6px;
+        box-shadow: 0 0 12px var(--accent-glow);
+        transition: all 0.15s;
+      }
+      .submit-btn:hover:not(:disabled) {
+        background: #9380ff;
+      }
+      .submit-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .toggle-row {
+        text-align: center;
+        margin-top: 18px;
+        font-size: 11px;
+        color: var(--text-dim);
+      }
+      .toggle-row a {
+        color: var(--accent);
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .toggle-row a:hover {
+        text-decoration: underline;
+      }
+
+      .error-msg {
+        background: rgba(248, 113, 113, 0.1);
+        border: 1px solid rgba(248, 113, 113, 0.3);
+        color: var(--red);
+        font-size: 11px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        margin-bottom: 14px;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <div class="logo-icon">AI</div>
+        <div class="logo-text">Ollama<span>Chat</span></div>
+      </div>
+
+      <h1 id="form-title">Sign in</h1>
+      <p class="subtitle" id="form-subtitle">
+        Welcome back — your chats stay on your device.
+      </p>
+
+      <div class="error-msg" id="error-msg"></div>
+
+      <form id="auth-form">
+        <div class="field" id="email-field" style="display: none">
+          <label>Email (optional)</label>
+          <input type="email" id="email" autocomplete="email" />
+        </div>
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="username" autocomplete="username" required />
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input
+            type="password"
+            id="password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <button type="submit" class="submit-btn" id="submit-btn">
+          SIGN IN
+        </button>
+      </form>
+
+      <div class="toggle-row">
+        <span id="toggle-text">Don't have an account?</span>
+        <a id="toggle-link">Create one</a>
+      </div>
+    </div>
+
+    <script>
+      let mode = "login"; // or 'register'
+
+      const form = document.getElementById("auth-form");
+      const submitBtn = document.getElementById("submit-btn");
+      const toggleLink = document.getElementById("toggle-link");
+      const toggleText = document.getElementById("toggle-text");
+      const emailField = document.getElementById("email-field");
+      const formTitle = document.getElementById("form-title");
+      const formSubtitle = document.getElementById("form-subtitle");
+      const errorMsg = document.getElementById("error-msg");
+
+      toggleLink.addEventListener("click", () => {
+        mode = mode === "login" ? "register" : "login";
+        errorMsg.style.display = "none";
+        if (mode === "register") {
+          formTitle.textContent = "Create account";
+          formSubtitle.textContent = "Password must be at least 8 characters.";
+          submitBtn.textContent = "CREATE ACCOUNT";
+          toggleText.textContent = "Already have an account?";
+          toggleLink.textContent = "Sign in";
+          emailField.style.display = "block";
+        } else {
+          formTitle.textContent = "Sign in";
+          formSubtitle.textContent =
+            "Welcome back — your chats stay on your device.";
+          submitBtn.textContent = "SIGN IN";
+          toggleText.textContent = "Don't have an account?";
+          toggleLink.textContent = "Create one";
+          emailField.style.display = "none";
+        }
+      });
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        errorMsg.style.display = "none";
+        submitBtn.disabled = true;
+
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value;
+        const email = document.getElementById("email").value.trim();
+
+        const endpoint = mode === "login" ? "/auth/login" : "/auth/register";
+        const body =
+          mode === "login"
+            ? { username, password }
+            : { username, password, email };
+
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json();
+
+          if (!res.ok) {
+            errorMsg.textContent = data.error || "Something went wrong";
+            errorMsg.style.display = "block";
+            submitBtn.disabled = false;
+            return;
+          }
+
+          window.location.href = "/";
+        } catch (err) {
+          errorMsg.textContent = "Could not reach the server: " + err.message;
+          errorMsg.style.display = "block";
+          submitBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,33 @@
+# --- Web server ---
+fastapi==0.115.6
+uvicorn==0.32.1
+python-multipart==0.0.9      # required for UploadFile / form-data (document upload)
+jinja2==3.1.4
+
+# --- Config ---
+pyyaml==6.0.2
+python-dotenv==1.0.1          # loads .env (session secret, Mongo URI, LangSmith keys)
+
+# --- Database ---
+pymongo==4.10.1
+
+# --- Vector store / embeddings ---
+chromadb==0.5.23
+sentence-transformers==3.3.1
+
+# --- PDF parsing (ingest.py) ---
+pymupdf==1.25.1
+
+# --- LLM orchestration ---
+langchain==0.3.13
+langchain-core==0.3.28
+langchain-ollama==0.2.2
+langchain-text-splitters==0.3.4
+langsmith==0.1.147            # tracing/monitoring — activated via LANGCHAIN_* env vars
+
+# --- Auth ---
+passlib==1.7.4
+bcrypt==4.0.1                 # pinned: bcrypt>=4.1 removed __about__, which
+                               # passlib 1.7.4 needs to detect the backend —
+                               # newer bcrypt causes a bogus "password too long" error
+itsdangerous==2.2.0            # signed session cookies
