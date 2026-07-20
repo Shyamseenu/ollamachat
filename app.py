@@ -71,8 +71,14 @@ auth_service = auth.AuthService(users_col)
 # 2. knowledge_base: persistent, stores uploaded-document chunks (per user)
 # ---------------------------------------------------------------------------
 chroma_client = chromadb.Client()
-embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
+_google_api_key = os.environ.get("GOOGLE_API_KEY")
+if not _google_api_key:
+    raise RuntimeError("GOOGLE_API_KEY is not set — required for Gemini embeddings")
+
+embedding_fn = embedding_functions.GoogleGenerativeAiEmbeddingFunction(
+    api_key=_google_api_key,
+    model_name=os.environ.get("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001"),
+    task_type="RETRIEVAL_DOCUMENT",
 )
 chroma_collection = chroma_client.get_or_create_collection(
     name="conversations", embedding_function=embedding_fn

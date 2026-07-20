@@ -8,9 +8,13 @@ Changes from the original version:
   - Every chunk is tagged with a `user_id` metadata field so retrieval can
     be scoped per-user (users only ever query their own uploads).
   - Still fully usable from the command line for bulk/manual ingestion.
+  - Embeddings now use Google's Gemini embedding API instead of a local
+    SentenceTransformer model, to avoid loading a large ML model into
+    memory (important on memory-constrained deploys like Render's free tier).
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Dict, List
@@ -18,9 +22,13 @@ from typing import Dict, List
 import chromadb
 import fitz  # PyMuPDF
 from chromadb.utils import embedding_functions
+from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
+load_dotenv()
+
 CHROMA_PATH = Path(__file__).parent / "chroma_db"
+GEMINI_EMBEDDING_MODEL = os.environ.get("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001")
 
 _chroma_client = None
 _kb_collection = None
@@ -32,8 +40,17 @@ def get_kb_collection():
     global _chroma_client, _kb_collection
     if _kb_collection is None:
         _chroma_client = chromadb.PersistentClient(path=str(CHROMA_PATH))
-        embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2"
+
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "GOOGLE_API_KEY is not set — required for Gemini embeddings in ingest.py"
+            )
+
+        embedding_fn = embedding_functions.GoogleGenerativeAiEmbeddingFunction(
+            api_key=api_key,
+            model_name=GEMINI_EMBEDDING_MODEL,
+            task_type="RETRIEVAL_DOCUMENT",
         )
         _kb_collection = _chroma_client.get_or_create_collection(
             name="knowledge_base", embedding_function=embedding_fn
