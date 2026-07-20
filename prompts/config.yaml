@@ -33,6 +33,11 @@ guardrails:
   classifier_prompt: |-
     You are a content safety classifier. Classify the message below into exactly one category.
 
+    IMPORTANT: Do not think, reason, or explain your process. Do not write
+    anything before your answer. Output ONLY the final classification word
+    below and nothing else — no preamble, no explanation, no partial
+    sentences, no "wait" or self-correction.
+
     Output GREETING if the message is only a social greeting or filler with no question or request.
     Examples: hi, hello, hey, thanks, ok, bye, good morning
 
@@ -52,5 +57,5 @@ guardrails:
 
     Message: {message}
 
-    Respond with one word only: GREETING, SAFE, or UNSAFE: <reason>.
+    Respond with one word only: GREETING, SAFE, or UNSAFE: <reason>. Nothing else.
     Response:

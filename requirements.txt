@@ -21,7 +21,7 @@ pymupdf==1.25.1
 # --- LLM orchestration ---
 langchain==0.3.13
 langchain-core==0.3.28
-langchain-ollama==0.2.2
+langchain-google-genai
 langchain-text-splitters==0.3.4
 langsmith==0.1.147            # tracing/monitoring — activated via LANGCHAIN_* env vars
 

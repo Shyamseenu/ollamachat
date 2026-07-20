@@ -18,12 +18,12 @@ import chromadb
 from chromadb.utils import embedding_functions
 from pymongo import MongoClient
 
-from langchain_ollama import ChatOllama
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnableLambda
 
 import auth
 import ingest as ingest_module
@@ -85,9 +85,13 @@ kb_collection = ingest_module.get_kb_collection()
 # ---------------------------------------------------------------------------
 # Guardrail LLM  (unchanged from original)
 # ---------------------------------------------------------------------------
-_GUARDRAIL_MODEL = "qwen2.5:1.5b"
-# num_predict=80 - enough for "GREETING", "SAFE", or "UNSAFE: <reason>"
-_classifier_llm = ChatOllama(model=_GUARDRAIL_MODEL, temperature=0, num_predict=80)
+_GUARDRAIL_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+_classifier_llm = ChatGoogleGenerativeAI(
+    model=_GUARDRAIL_MODEL,
+    temperature=0,
+    max_output_tokens=200,
+    model_kwargs={"thinking_config": {"thinking_budget": 0}},
+)
 
 _classifier_chain = None
 
@@ -113,6 +117,14 @@ def _get_guardrail_rules() -> str:
         raise KeyError("No rules or fallback_rules found under 'guardrails' in config.yaml.")
     return f"- {fallback}"
 
+def _extract_text(ai_message) -> str:
+    content = ai_message.content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        ).strip()
+    return (content or "").strip()
 
 def _build_guardrail_chains():
     global _classifier_chain
@@ -122,7 +134,11 @@ def _build_guardrail_chains():
     if not classifier_template:
         raise KeyError("Missing 'classifier_prompt' under 'guardrails' in config.yaml.")
 
-    _classifier_chain = PromptTemplate.from_template(classifier_template) | _classifier_llm | StrOutputParser()
+    _classifier_chain = (
+        PromptTemplate.from_template(classifier_template)
+        | _classifier_llm
+        | RunnableLambda(_extract_text)
+    )
 
 
 async def check_guard(message: str) -> tuple[bool, str]:
@@ -295,10 +311,9 @@ def get_history(user_id: str, session_id: str) -> InMemoryChatMessageHistory:
     return _chat_histories[key]
 
 
-_chat_llm = ChatOllama(
-    model="qwen2.5:1.5b",
+_chat_llm = ChatGoogleGenerativeAI(
+    model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
     temperature=0.7,
-    streaming=True,
 )
 
 
