@@ -1,4 +1,6 @@
 import os
+os.environ.setdefault("GRPC_DNS_RESOLVER", "native")
+
 import json
 import asyncio
 import shutil
@@ -27,7 +29,6 @@ from langchain_core.runnables import RunnableLambda
 
 import auth
 import ingest as ingest_module
-
 # ---------------------------------------------------------------------------
 # Environment / LangSmith
 # ---------------------------------------------------------------------------
@@ -83,10 +84,18 @@ embedding_fn = embedding_functions.GoogleGenerativeAiEmbeddingFunction(
 chroma_collection = chroma_client.get_or_create_collection(
     name="conversations", embedding_function=embedding_fn
 )
-
 # knowledge_base collection now lives inside ingest.py so both app.py and the
 # CLI ingester share exactly one PersistentClient instance.
 kb_collection = ingest_module.get_kb_collection()
+
+# Separate embedding function for queries — Gemini's embedding model produces
+# better retrieval results when queries are embedded with RETRIEVAL_QUERY
+# instead of RETRIEVAL_DOCUMENT (which is what kb_collection's embedding_fn uses).
+_query_embedding_fn = embedding_functions.GoogleGenerativeAiEmbeddingFunction(
+    api_key=_google_api_key,
+    model_name=os.environ.get("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001"),
+    task_type="RETRIEVAL_QUERY",
+)
 
 # ---------------------------------------------------------------------------
 # Guardrail LLM  (unchanged from original)
@@ -326,13 +335,14 @@ _chat_llm = ChatGoogleGenerativeAI(
 # ---------------------------------------------------------------------------
 # Knowledge base retrieval — now filtered to the requesting user's documents
 # ---------------------------------------------------------------------------
-def retrieve_context(query: str, user_id: str, n_results: int = 5) -> str:
+def retrieve_context(query: str, user_id: str, n_results: int = 8) -> str:
     total = kb_collection.count()
     if total == 0:
         return ""
 
+    query_embedding = _query_embedding_fn([query])[0]
     results = kb_collection.query(
-        query_texts=[query],
+        query_embeddings=[query_embedding],
         n_results=min(n_results, total),
         where={"user_id": user_id},
     )
@@ -353,7 +363,7 @@ def retrieve_context(query: str, user_id: str, n_results: int = 5) -> str:
         relevance = round((1 - dist) * 100, 1)
         snippet = doc[:80].replace("\n", " ")
         print(f"  chunk {i+1}: [{source} p.{page}] score={relevance}%  snippet={snippet!r}")
-        if relevance >= 35:
+        if relevance >= 30:
             parts.append(f"[Source: {source}, Page {page}]\n{doc.strip()}")
         else:
             print(f"  chunk {i+1}: skipped (score too low)")

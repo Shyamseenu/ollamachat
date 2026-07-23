@@ -15,6 +15,8 @@ Changes from the original version:
 
 import argparse
 import os
+os.environ.setdefault("GRPC_DNS_RESOLVER", "native")
+
 import sys
 from pathlib import Path
 from typing import Dict, List
@@ -53,7 +55,9 @@ def get_kb_collection():
             task_type="RETRIEVAL_DOCUMENT",
         )
         _kb_collection = _chroma_client.get_or_create_collection(
-            name="knowledge_base", embedding_function=embedding_fn
+            name="knowledge_base",
+            embedding_function=embedding_fn,
+            metadata={"hnsw:space": "cosine"},
         )
     return _kb_collection
 
@@ -89,7 +93,7 @@ def extract_pages(path: Path) -> List[Dict]:
     )
 
 
-def chunk_pages(pages: List[Dict], chunk_size: int = 500, overlap: int = 50) -> List[Dict]:
+def chunk_pages(pages: List[Dict], chunk_size: int = 500, overlap: int = 100) -> List[Dict]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=overlap,
@@ -134,19 +138,27 @@ def ingest_file(
     total = 0
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
-        kb_collection.upsert(
-            ids=[f"{user_id}_{path.stem}_p{c['page']}_c{c['chunk_id']}" for c in batch],
-            documents=[c["text"] for c in batch],
-            metadatas=[
-                {
-                    "source": path.name,
-                    "page": c["page"],
-                    "chunk_id": c["chunk_id"],
-                    "user_id": user_id,
-                }
-                for c in batch
-            ],
-        )
+        try:
+            kb_collection.upsert(
+                ids=[f"{user_id}_{path.stem}_p{c['page']}_c{c['chunk_id']}" for c in batch],
+                documents=[c["text"] for c in batch],
+                metadatas=[
+                    {
+                        "source": path.name,
+                        "page": c["page"],
+                        "chunk_id": c["chunk_id"],
+                        "user_id": user_id,
+                    }
+                    for c in batch
+                ],
+            )
+        except Exception as e:
+            import traceback
+            print(f"[ingest] upsert failed on batch {i}: {type(e).__name__}: {e}")
+            print(f"[ingest] __cause__: {getattr(e, '__cause__', None)}")
+            print(f"[ingest] __context__: {getattr(e, '__context__', None)}")
+            traceback.print_exc()
+            raise
         total += len(batch)
 
     return total
